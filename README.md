@@ -30,8 +30,8 @@ POST /parse-paragraph
 - Preserve all attributes exactly
 - Do not modify structure or ordering
 - Only add:
-- &lt;reference&gt;
-- &lt;commentary&gt;
+  - &lt;reference&gt;
+  - &lt;commentary&gt;
 
 Output must be identical to input except for wrapper tags.
 
