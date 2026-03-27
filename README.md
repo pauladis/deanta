@@ -15,10 +15,13 @@ POST /parse-paragraph
 {
   "text": "<para>...</para>"
 }
-Output
+```
+### Output
+```json
 {
   "classified_paragraph": "<para>...</para>"
-}```
+}
+```
 
 
 ### Requirements
