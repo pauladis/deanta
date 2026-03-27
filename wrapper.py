@@ -27,39 +27,44 @@ class SmartTagWrapper:
         seg_idx = 0
         current_class = None
 
-        # Find end of opening <para ...>
-        para_open_end = self.original_xml.find(">") + 1
+        # ---------- SAFE <para> DETECTION ----------
+        para_start = self.original_xml.lower().find("<para")
+        if para_start != -1:
+            para_open_end = self.original_xml.find(">", para_start) + 1
+        else:
+            para_open_end = 0
 
         while xml_idx < len(self.original_xml):
 
-            # ---------- CLOSE ----------
-            if current_class is not None and seg_idx < len(segments):
-                seg_start, seg_end, seg_class = segments[seg_idx]
+            # ---------- CLOSE (handle multiple boundaries) ----------
+            while current_class is not None and seg_idx < len(segments):
+                seg_start, seg_end, classification = segments[seg_idx]
 
-                if text_idx >= seg_end:
+                if text_idx == seg_end:
                     result.append(f"</{current_class}>")
                     current_class = None
                     seg_idx += 1
-                    continue  # re-evaluate after closing
+                else:
+                    break
 
             # ---------- OPEN ----------
             if seg_idx < len(segments):
-                seg_start, seg_end, seg_class = segments[seg_idx]
+                seg_start, seg_end, classification = segments[seg_idx]
 
                 if text_idx == seg_start:
                     # Prevent wrapping <para> itself
                     if xml_idx >= para_open_end:
-                        if current_class != seg_class:
+                        if current_class != classification:
                             if current_class is not None:
                                 result.append(f"</{current_class}>")
-                            result.append(f"<{seg_class}>")
-                            current_class = seg_class
+                            result.append(f"<{classification}>")
+                            current_class = classification
 
             # ---------- COPY ----------
             if self.original_xml[xml_idx] == "<":
                 tag_end = self.original_xml.find(">", xml_idx)
                 if tag_end != -1:
-                    result.append(self.original_xml[xml_idx : tag_end + 1])
+                    result.append(self.original_xml[xml_idx: tag_end + 1])
                     xml_idx = tag_end + 1
                 else:
                     result.append(self.original_xml[xml_idx])

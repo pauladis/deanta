@@ -1,69 +1,92 @@
 import re
-from typing import List
 
 
 class EnhancedClassifier:
-    """Classifies segments as reference or commentary with citation awareness"""
-    
-    # Strong commentary indicators - phrases that start commentary segments
-    STRONG_COMMENTARY_PATTERNS = [
+    """
+    Classifies segments as 'reference' or 'commentary'
+    using semantic + citation-aware heuristics.
+    """
+
+    # ---------- COMMENTARY PATTERNS ----------
+    COMMENTARY_PATTERNS = [
+        # Explicit phrases
         r'^See\s+also:?',
         r'^For\s+an?\s+in-depth',
         r'^In\s+addition',
         r'^Furthermore',
         r'^Moreover',
         r'^Additionally',
+
+        # Inferred commentary
+        r'^Building\s+on',
+        r'^It\s+is\s+(?:also\s+)?argued',
+        r'^It\s+should\s+be\s+noted',
+        r'^Recent\s+(?:studies|scholarship)',
+        r'^archival\s+evidence',
+        r'^Taken\s+together',
+        r'^This\s+(?:topic|has)',
+        r'^These\s+works',
+        r'^For\s+a\s+(?:revised|different)',
+        r'^The\s+(?:role|evidence)',
     ]
-    
-    # Reference patterns - things that indicate bibliographic content
+
+    # ---------- REFERENCE PATTERNS ----------
     REFERENCE_PATTERNS = [
-        r'[A-Z][a-z]+(?:,\s+[A-Z]\.)+',  # Author: Surname, Initials
-        r'\(\d{4}\)',  # Year in parentheses
-        r'pp?\.\s*\d+',  # Page numbers
-        r'https?://',  # URLs
-        r'(?:IMF|UNESCO|OECD|Cambridge|Oxford|Palgrave)',  # Organizations/publishers
-        r'(?:Working Papers?|Journal|Conference)',  # Publication types
+        r'[A-Z][a-z]+(?:,\s+[A-Z]\.)+',   # Author names
+        r'\(\d{4}\)',                    # Year
+        r'pp?\.\s*\d+',                  # Page numbers
+        r'https?://',                    # URLs
+        r'(?:IMF|UNESCO|OECD|Cambridge|Oxford|Palgrave)',
+        r'(?:Working Papers?|Journal|Conference)',
     ]
-    
+
+    # ---------- NARRATIVE VERBS ----------
+    COMMENTARY_VERBS = re.compile(
+        r'\b(argue|suggest|indicate|highlight|provide|examine|explore|discuss)\b',
+        re.IGNORECASE
+    )
+
     def __init__(self):
-        self.strong_commentary = [re.compile(p, re.IGNORECASE) for p in self.STRONG_COMMENTARY_PATTERNS]
+        self.commentary = [re.compile(p, re.IGNORECASE) for p in self.COMMENTARY_PATTERNS]
         self.reference = [re.compile(p) for p in self.REFERENCE_PATTERNS]
-    
+
     def classify(self, segment_text: str) -> str:
-        """
-        Classify a segment as 'reference' or 'commentary'
-        
-        Args:
-            segment_text: The text of the segment (without XML tags)
-        
-        Returns:
-            'reference' or 'commentary'
-        """
         segment_text = segment_text.strip()
-        
-        # Check for strong commentary indicators
-        for pattern in self.strong_commentary:
+
+        # ---------- SPECIAL CASES ----------
+
+        # "See also: ..." MUST be commentary (to allow proper splitting)
+        if re.match(r'^\s*See\s+also:', segment_text, re.IGNORECASE):
+            return 'commentary'
+
+        # "see Author..." → reference
+        if re.match(r'^\s*see\s+[A-Z]', segment_text, re.IGNORECASE):
+            return 'reference'
+
+        # ---------- COMMENTARY (explicit patterns) ----------
+        for pattern in self.commentary:
             if pattern.search(segment_text):
                 return 'commentary'
-        
-        # Check reference patterns
+
+        # ---------- COMMENTARY (semantic / narrative) ----------
+        if self.COMMENTARY_VERBS.search(segment_text):
+            return 'commentary'
+
+        # ---------- REFERENCE ----------
         reference_matches = sum(1 for p in self.reference if p.search(segment_text))
-        
-        # If multiple reference patterns match, it's likely a reference
+
+        # Strong reference signal
         if reference_matches >= 2:
             return 'reference'
-        
-        # If starts with author name pattern and has a year, it's a reference
+
+        # Author + year pattern
         if re.search(r'^[A-Z][a-z]+.*\(\d{4}\)', segment_text):
             return 'reference'
-        
-        # Long text without commentary patterns is likely reference (citations)
-        if len(segment_text) > 50:
-            return 'reference'
-        
-        # Short text without patterns defaults to commentary
-        if len(segment_text) < 20:
+
+        # ---------- FALLBACK ----------
+        # Short non-reference → commentary
+        if len(segment_text) < 20 and reference_matches == 0:
             return 'commentary'
-        
-        # Default: treat longer text as reference
+
+        # Default to reference
         return 'reference'

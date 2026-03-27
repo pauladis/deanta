@@ -13,17 +13,41 @@ class Segment:
 class CitationAwareTokenizer:
     """
     Splits text into citation-aware segments.
-    
+
     Rules:
     - Primary split: semicolon (;)
     - Period (.) only splits when it's a TRUE boundary between citations
     - Avoid splitting inside single citations (Author → Year → Title → Journal)
+    - Ignore <span class="del"> for semantics
+    - Include <span class="ins"> content
     """
 
-    def __init__(self, text: str):
-        self.text = text
+    def __init__(self, xml_text: str):
+        self.original_text = xml_text
+        self.text = self._normalize_for_semantics(xml_text)
         self.segments = self._tokenize()
 
+    # ---------- NORMALIZATION ----------
+    def _normalize_for_semantics(self, xml_text: str) -> str:
+        """
+        Prepare text for semantic processing:
+        - Remove deleted text
+        - Keep inserted text
+        - Strip all tags
+        """
+
+        # Remove deleted text completely
+        text = re.sub(r'<span class="del"[^>]*>.*?</span>', '', xml_text)
+
+        # Keep inserted text, remove tags
+        text = re.sub(r'<span class="ins"[^>]*>(.*?)</span>', r'\1', text)
+
+        # Remove remaining tags
+        text = re.sub(r'<[^>]+>', '', text)
+
+        return text
+
+    # ---------- TOKENIZATION ----------
     def _tokenize(self) -> List[Segment]:
         segments = []
         text = self.text
@@ -36,7 +60,7 @@ class CitationAwareTokenizer:
             char = text[i]
             current_segment += char
 
-            # ---------- SEMICOLON (SAFE SPLIT) ----------
+            # ---------- SEMICOLON ----------
             if char == ';':
                 segments.append(Segment(
                     text=current_segment.strip(),
@@ -52,7 +76,7 @@ class CitationAwareTokenizer:
                 current_segment = ""
                 continue
 
-            # ---------- PERIOD (SMART SPLIT) ----------
+            # ---------- PERIOD ----------
             if char == '.' and self._is_sentence_boundary(text, i):
                 segments.append(Segment(
                     text=current_segment.strip(),
@@ -80,12 +104,13 @@ class CitationAwareTokenizer:
 
         return segments
 
+    # ---------- SENTENCE BOUNDARY ----------
     def _is_sentence_boundary(self, text: str, period_pos: int) -> bool:
         """
         Determines if a period is a TRUE boundary between citations.
         """
 
-        # End of text → always boundary
+        # End of text
         if period_pos == len(text) - 1:
             return True
 
@@ -96,28 +121,27 @@ class CitationAwareTokenizer:
         while after_pos < len(text) and text[after_pos].isspace():
             after_pos += 1
 
+        before_clean = before.strip()
+
         # ---------- RULE 1: DO NOT split after year ----------
-        # Example: (2010). Important elements...
-        if re.search(r'\(\d{4}\)$', before.strip()):
+        if re.search(r'\(\d{4}\)$', before_clean):
             return False
 
         # ---------- RULE 2: DO NOT split inside citation flow ----------
-        # Example: Title. Journal name...
-        if re.search(r'\b[A-Z][a-z]+$', before.strip()) and \
+        if re.search(r'\b[A-Z][a-z]+$', before_clean) and \
            after_pos < len(text) and text[after_pos].isupper():
             return False
 
         # ---------- RULE 3: Abbreviations ----------
-        if re.search(r'\b(pp|p|al|ed|vol|no)\.?$', before.strip()):
+        if re.search(r'\b(pp|p|al|ed|vol|no)\.?$', before_clean):
             return False
 
-        # ---------- RULE 4: Initials (C. Smith) ----------
+        # ---------- RULE 4: Initials ----------
         if period_pos >= 1 and text[period_pos - 1].isupper():
             if period_pos == 1 or text[period_pos - 2].isspace():
                 return False
 
         # ---------- RULE 5: TRUE boundary ----------
-        # Only split if next token looks like NEW citation start
         if after_pos < len(text):
             return (
                 text[after_pos].isupper() and
