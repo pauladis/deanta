@@ -18,7 +18,7 @@ POST /parse-paragraph
 Output
 {
   "classified_paragraph": "<para>...</para>"
-}
+}```
 
 
 ### Requirements
