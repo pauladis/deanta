@@ -33,14 +33,18 @@ def split_commentary_phrases(
     segments: List[Tuple[str, int, int, str]]
 ) -> List[Tuple[str, int, int, str]]:
     """
-    Splits phrases like:
-    "See also: Author..." → commentary + reference
+    Generic splitter for:
+    "X, see Y" → commentary + reference
+    Works for academic patterns like:
+    - "For a revised interpretation, see X"
+    - "For discussion, see X"
+    - "Moreover... see X"
     """
 
     result = []
 
     pattern = re.compile(
-        r'^(See\s+also:?|For\s+an?\s+in-depth\s+discussion.*?)(\s+.+)$',
+        r'^(.*?)(\bsee\b\s+.+)$',
         re.IGNORECASE
     )
 
@@ -50,10 +54,10 @@ def split_commentary_phrases(
             match = pattern.match(text)
 
             if match:
-                phrase = match.group(1).strip()
-                remaining = match.group(2).strip()
+                before = match.group(1).strip()
+                after = match.group(2).strip()
 
-                split_offset = text.find(remaining)
+                split_offset = text.lower().find(after.lower())
 
                 if split_offset == -1:
                     result.append((text, start, end, classification))
@@ -62,11 +66,11 @@ def split_commentary_phrases(
                 split_pos = start + split_offset
 
                 # commentary part
-                result.append((phrase, start, split_pos, 'commentary'))
+                if before:
+                    result.append((before, start, split_pos, 'commentary'))
 
-                # remaining part
-                remaining_class = classifier.classify(remaining)
-                result.append((remaining, split_pos, end, remaining_class))
+                # reference part (force as reference)
+                result.append((after, split_pos, end, 'reference'))
 
             else:
                 result.append((text, start, end, classification))
@@ -84,14 +88,12 @@ def classify_paragraph(
 ) -> Tuple[str, List[Tuple[str, int, int, str]]]:
     """
     Full pipeline:
-    XML → Tokenize → Classify → Post-process → Wrap
+    XML → Tokenize → Classify → Split → Wrap
     """
 
-    # Tokenize directly from XML (handles ins/del internally)
     tokenizer = CitationAwareTokenizer(paragraph_text)
     segments = tokenizer.get_segments()
 
-    # Classify segments
     classified_segments = []
     for segment in segments:
         classification = classifier.classify(segment.text)
@@ -103,10 +105,9 @@ def classify_paragraph(
             classification
         ))
 
-    # Split commentary phrases
+    # 🔥 critical step (now generic + correct)
     classified_segments = split_commentary_phrases(classified_segments)
 
-    # Wrap results back into original XML
     wrapper = SmartTagWrapper(paragraph_text, classified_segments)
     wrapped_xml = wrapper.get_wrapped_xml()
 

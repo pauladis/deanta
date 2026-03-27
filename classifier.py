@@ -9,13 +9,20 @@ class EnhancedClassifier:
 
     # ---------- COMMENTARY PATTERNS ----------
     COMMENTARY_PATTERNS = [
-        # Explicit phrases
+        # Explicit discourse markers
         r'^See\s+also:?',
-        r'^For\s+an?\s+in-depth',
         r'^In\s+addition',
         r'^Furthermore',
         r'^Moreover',
         r'^Additionally',
+
+        # Academic framing
+        r'^For\s+(?:an?\s+)?(?:in-depth|detailed|full|further)\s+(?:discussion|analysis)',
+        r'^For\s+(?:a\s+)?(?:revised|different|alternative)\s+(?:interpretation|view)',
+        r'^For\s+(?:discussion|analysis)',
+        r'^As\s+(?:discussed|noted|argued)',
+        r'^Compare',
+        r'^Cf\.',
 
         # Inferred commentary
         r'^Building\s+on',
@@ -26,7 +33,6 @@ class EnhancedClassifier:
         r'^Taken\s+together',
         r'^This\s+(?:topic|has)',
         r'^These\s+works',
-        r'^For\s+a\s+(?:revised|different)',
         r'^The\s+(?:role|evidence)',
     ]
 
@@ -42,7 +48,14 @@ class EnhancedClassifier:
 
     # ---------- NARRATIVE VERBS ----------
     COMMENTARY_VERBS = re.compile(
-        r'\b(argue|suggest|indicate|highlight|provide|examine|explore|discuss)\b',
+        r'\b(argue|suggest|indicate|highlight|provide|examine|explore|discuss|debate|debated|analyze|analyse|show|demonstrate)\b',
+        re.IGNORECASE
+    )
+
+    # ---------- REFERENCE TRIGGERS ----------
+    # These indicate "reference is coming next"
+    REFERENCE_INTRO = re.compile(
+        r'\b(see|cf\.|compare|e\.g\.)\b',
         re.IGNORECASE
     )
 
@@ -55,7 +68,7 @@ class EnhancedClassifier:
 
         # ---------- SPECIAL CASES ----------
 
-        # "See also: ..." MUST be commentary (to allow proper splitting)
+        # "See also: ..." → commentary (must be split later)
         if re.match(r'^\s*See\s+also:', segment_text, re.IGNORECASE):
             return 'commentary'
 
@@ -68,25 +81,28 @@ class EnhancedClassifier:
             if pattern.search(segment_text):
                 return 'commentary'
 
-        # ---------- COMMENTARY (semantic / narrative) ----------
+        # ---------- COMMENTARY (semantic narrative) ----------
         if self.COMMENTARY_VERBS.search(segment_text):
             return 'commentary'
+
+        # ---------- MIXED CASE DETECTION ----------
+        # e.g. "For a revised interpretation, see X"
+        if self.REFERENCE_INTRO.search(segment_text):
+            # If it starts like a sentence → commentary intro
+            if re.match(r'^[A-Z]', segment_text):
+                return 'commentary'
 
         # ---------- REFERENCE ----------
         reference_matches = sum(1 for p in self.reference if p.search(segment_text))
 
-        # Strong reference signal
         if reference_matches >= 2:
             return 'reference'
 
-        # Author + year pattern
         if re.search(r'^[A-Z][a-z]+.*\(\d{4}\)', segment_text):
             return 'reference'
 
         # ---------- FALLBACK ----------
-        # Short non-reference → commentary
         if len(segment_text) < 20 and reference_matches == 0:
             return 'commentary'
 
-        # Default to reference
         return 'reference'
