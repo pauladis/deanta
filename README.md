@@ -29,9 +29,7 @@ POST /parse-paragraph
 - Preserve all existing tags (<span>, <i>, etc.)
 - Preserve all attributes exactly
 - Do not modify structure or ordering
-- Only add:
-- - <reference>
-- - <commentary>
+- Only add: <reference> or <commentary>
 
 Output must be identical to input except for wrapper tags.
 
