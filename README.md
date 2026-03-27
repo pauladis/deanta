@@ -26,12 +26,12 @@ POST /parse-paragraph
 
 ### Requirements
 
-Preserve all existing tags (<span>, <i>, etc.)
-Preserve all attributes exactly
-Do not modify structure or ordering
-Only add:
-<reference>
-<commentary>
+- Preserve all existing tags (<span>, <i>, etc.)
+- Preserve all attributes exactly
+- Do not modify structure or ordering
+- Only add:
+- - <reference>
+- - <commentary>
 
 Output must be identical to input except for wrapper tags.
 
