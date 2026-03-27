@@ -36,10 +36,10 @@ Only add:
 Output must be identical to input except for wrapper tags.
 
 ### Approach
-Tokenizer: splits content using citation-aware rules (; as primary delimiter)
-Classifier: detects reference vs commentary (e.g., "See also")
-Post-processing: separates mixed segments (e.g., "See also: Author")
-Wrapper: inserts tags using position-based mapping without breaking XML
+- Tokenizer: splits content using citation-aware rules (; as primary delimiter)
+- Classifier: detects reference vs commentary (e.g., "See also")
+- Post-processing: separates mixed segments (e.g., "See also: Author")
+- Wrapper: inserts tags using position-based mapping without breaking XML
 
 
 ### How to run
