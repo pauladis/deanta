@@ -8,7 +8,7 @@ from pathlib import Path
 from main import classify_paragraph
 
 
-INPUT_FILE = "paragraphs-samples.json"
+INPUT_FILE = "correct.json"
 OUTPUT_FILE = "output.json"
 
 
@@ -26,26 +26,37 @@ def save_results(path: str, data):
 
 
 def test_samples():
-    """Process all sample paragraphs"""
+    """Process all sample paragraphs from correct.json and compare with expected output"""
 
-    samples = load_samples(INPUT_FILE)
+    test_cases = load_samples(INPUT_FILE)
 
     results = []
     success_count = 0
+    failed_count = 0
 
-    for paragraph in samples.get("paragraphs", []):
-        para_id = paragraph.get("id")
-        original_text = paragraph.get("text")
+    print(f"\nRunning {len(test_cases)} test cases from {INPUT_FILE}\n")
+    print("=" * 60)
+
+    for test_case in test_cases:
+        para_id = test_case.get("id")
+        original_text = test_case.get("text")
+        expected_output = test_case.get("classified_paragraph")
 
         print(f"\nProcessing paragraph {para_id}...")
 
         try:
             classified_text, segment_classifications = classify_paragraph(original_text)
 
+            # Check if output matches expected
+            matches = classified_text == expected_output
+            match_status = "✓ MATCHES" if matches else "✗ MISMATCH"
+
             result = {
                 "id": para_id,
                 "original_text": original_text,
                 "classified_text": classified_text,
+                "expected_output": expected_output,
+                "matches": matches,
                 "classifications": [
                     {
                         "text": text,
@@ -58,19 +69,23 @@ def test_samples():
             }
 
             results.append(result)
-            success_count += 1
+            if matches:
+                success_count += 1
+            else:
+                failed_count += 1
 
-            print(f"✓ Success | segments: {len(segment_classifications)}")
+            print(f"✓ Success | segments: {len(segment_classifications)} | {match_status}")
 
         except Exception as e:
             print(f"✗ Error in paragraph {para_id}: {str(e)}")
             traceback.print_exc()
+            failed_count += 1
 
     output = {"paragraphs": results}
     save_results(OUTPUT_FILE, output)
 
     print("\n" + "=" * 60)
-    print(f"Processed: {success_count}/{len(samples.get('paragraphs', []))}")
+    print(f"Results: {success_count} matched, {failed_count} mismatched out of {len(test_cases)}")
     print(f"Output written to: {OUTPUT_FILE}")
     print("=" * 60)
 
