@@ -35,15 +35,43 @@ def split_commentary_phrases(
 
     result = []
 
-    see_pattern = re.compile(r'^(.*?)(\bsee\b\s+.+)$', re.IGNORECASE)
-    tail_pattern = re.compile(r'^(.*?,)(\s+for\s+.+)$', re.IGNORECASE)
+    # 🔥 NEW: explicit "See also:"
+    see_also_pattern = re.compile(
+        r'^(See\s+also:)(\s+.+)$',
+        re.IGNORECASE
+    )
+
+    # existing patterns
+    see_pattern = re.compile(
+        r'^(.*?)(\bsee\b\s+.+)$',
+        re.IGNORECASE
+    )
+
+    tail_pattern = re.compile(
+        r'^(.*?,)(\s+for\s+.+)$',
+        re.IGNORECASE
+    )
 
     for text, start, end, classification in segments:
+
+        # ---------- CASE 0: "See also:" ----------
+        if classification == 'commentary':
+            match = see_also_pattern.match(text)
+            if match:
+                phrase = match.group(1).strip()
+                rest = match.group(2).strip()
+
+                split_offset = text.find(rest)
+                if split_offset != -1:
+                    split_pos = start + split_offset
+
+                    result.append((phrase, start, split_pos, 'commentary'))
+                    result.append((rest, split_pos, end, 'reference'))
+                    continue
 
         # ---------- CASE 1: commentary → see → reference ----------
         if classification == 'commentary':
             match = see_pattern.match(text)
-
             if match:
                 before = match.group(1).strip()
                 after = match.group(2).strip()
@@ -61,7 +89,6 @@ def split_commentary_phrases(
         # ---------- CASE 2: reference → trailing commentary ----------
         if classification == 'reference':
             match = tail_pattern.match(text)
-
             if match:
                 before = match.group(1).strip()
                 after = match.group(2).strip()
@@ -84,10 +111,6 @@ def split_commentary_phrases(
 def classify_paragraph(
     paragraph_text: str
 ) -> Tuple[str, List[Tuple[str, int, int, str]]]:
-    """
-    Full pipeline:
-    XML → Tokenize → Classify → Split → Wrap
-    """
 
     tokenizer = CitationAwareTokenizer(paragraph_text)
     segments = tokenizer.get_segments()
@@ -103,7 +126,7 @@ def classify_paragraph(
             classification
         ))
 
-    # 🔥 critical step (now generic + correct)
+    # 🔥 critical step
     classified_segments = split_commentary_phrases(classified_segments)
 
     wrapper = SmartTagWrapper(paragraph_text, classified_segments)
