@@ -2,10 +2,12 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import re
 from typing import List, Tuple
+import logging
 
-from tokenizer import CitationAwareTokenizer
-from classifier import EnhancedClassifier
-from wrapper import SmartTagWrapper
+from .tokenizer import CitationAwareTokenizer
+from .classifier import EnhancedClassifier
+from .wrapper import SmartTagWrapper
+from .config import HOST, PORT, DEBUG, logger
 
 
 app = FastAPI(
@@ -140,13 +142,17 @@ def classify_paragraph(
 @app.post("/parse-paragraph", response_model=ParagraphOutput)
 async def parse_paragraph(input_data: ParagraphInput) -> ParagraphOutput:
     if not input_data.text or not input_data.text.strip():
+        logger.warning("Empty paragraph text received")
         raise HTTPException(status_code=400, detail="Paragraph text cannot be empty")
 
     try:
+        logger.debug(f"Processing paragraph with {len(input_data.text)} characters")
         wrapped_paragraph, _ = classify_paragraph(input_data.text)
+        logger.info("Paragraph processed successfully")
         return ParagraphOutput(classified_paragraph=wrapped_paragraph)
 
     except Exception as e:
+        logger.error(f"Error processing paragraph: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Error processing paragraph: {str(e)}"
@@ -174,4 +180,5 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    logger.info(f"Starting Deanta API on {HOST}:{PORT}")
+    uvicorn.run(app, host=HOST, port=PORT, reload=DEBUG)

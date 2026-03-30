@@ -1,19 +1,58 @@
 from typing import List, Tuple
+import logging
+
+logger = logging.getLogger("deanta")
 
 
 class SmartTagWrapper:
-    """Wraps text with classification tags while preserving DOM structure"""
+    """
+    Wraps text segments with classification tags while preserving DOM structure.
+    
+    This class carefully inserts <reference> and <commentary> tags around
+    classified text segments while maintaining the integrity of existing XML/HTML tags.
+    
+    Attributes:
+        original_xml: The original paragraph text with XML/HTML tags
+        segment_classifications: List of (text, start, end, classification) tuples
+        wrapped_xml: The result after wrapping with tags
+    """
 
     def __init__(
         self,
         original_xml: str,
         segment_classifications: List[Tuple[str, int, int, str]],
-    ):
-        self.original_xml = original_xml
-        self.segment_classifications = segment_classifications
-        self.wrapped_xml = self._wrap()
+    ) -> None:
+        if not isinstance(original_xml, str):
+            raise TypeError("original_xml must be a string")
+        if not isinstance(segment_classifications, list):
+            raise TypeError("segment_classifications must be a list")
+
+        self.original_xml: str = original_xml
+        self.segment_classifications: List[Tuple[str, int, int, str]] = segment_classifications
+        self.wrapped_xml: str = self._wrap()
 
     def _wrap(self) -> str:
+        """
+        Wrap segments with classification tags while preserving XML/HTML structure.
+        
+        Returns:
+            str: The wrapped XML with <reference> and <commentary> tags inserted
+            
+        Raises:
+            ValueError: If segment positions are invalid or overlapping
+        """
+        # Validate segments
+        for text, start, end, classification in self.segment_classifications:
+            if not isinstance(start, int) or not isinstance(end, int):
+                logger.error(f"Invalid segment positions: start={start}, end={end}")
+                raise ValueError("Segment start and end must be integers")
+            if start < 0 or end < 0 or start > end:
+                logger.error(f"Invalid segment range: start={start}, end={end}")
+                raise ValueError(f"Invalid segment range: {start}-{end}")
+            if end > len(self.original_xml):
+                logger.error(f"Segment end {end} exceeds text length {len(self.original_xml)}")
+                raise ValueError(f"Segment end {end} exceeds text length")
+
         # Build (start, end, classification)
         segments = [
             (start, end, classification)
@@ -81,4 +120,9 @@ class SmartTagWrapper:
         return "".join(result)
 
     def get_wrapped_xml(self) -> str:
+        """Retrieve the wrapped XML result.
+        
+        Returns:
+            str: The paragraph text with classification tags inserted
+        """
         return self.wrapped_xml
