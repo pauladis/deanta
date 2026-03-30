@@ -11,10 +11,11 @@ This service identifies **reference content** and **commentary** within paragrap
 - pip (Python package manager)
 - Git (optional, for version control)
 
-## API
+## API Endpoints
 
-
-POST /parse-paragraph
+- `POST /parse-paragraph` - Classify and tag paragraph content
+- `GET /health` - Health check
+- `GET /` - API info
 
 
 ### Input
@@ -88,9 +89,3 @@ pytest tests/test_parser.py -v
 # Run only integration tests (requires running server)
 pytest tests/test_endpoint.py -v
 ```
-
-## API Endpoints
-
-- `POST /parse-paragraph` - Classify and tag paragraph content
-- `GET /health` - Health check
-- `GET /` - API info
