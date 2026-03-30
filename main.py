@@ -32,51 +32,49 @@ class ParagraphOutput(BaseModel):
 def split_commentary_phrases(
     segments: List[Tuple[str, int, int, str]]
 ) -> List[Tuple[str, int, int, str]]:
-    """
-    Generic splitter for:
-    "X, see Y" → commentary + reference
-    Works for academic patterns like:
-    - "For a revised interpretation, see X"
-    - "For discussion, see X"
-    - "Moreover... see X"
-    """
 
     result = []
 
-    pattern = re.compile(
-        r'^(.*?)(\bsee\b\s+.+)$',
-        re.IGNORECASE
-    )
+    see_pattern = re.compile(r'^(.*?)(\bsee\b\s+.+)$', re.IGNORECASE)
+    tail_pattern = re.compile(r'^(.*?,)(\s+for\s+.+)$', re.IGNORECASE)
 
     for text, start, end, classification in segments:
 
+        # ---------- CASE 1: commentary → see → reference ----------
         if classification == 'commentary':
-            match = pattern.match(text)
+            match = see_pattern.match(text)
 
             if match:
                 before = match.group(1).strip()
                 after = match.group(2).strip()
 
                 split_offset = text.lower().find(after.lower())
+                if split_offset != -1:
+                    split_pos = start + split_offset
 
-                if split_offset == -1:
-                    result.append((text, start, end, classification))
+                    if before:
+                        result.append((before, start, split_pos, 'commentary'))
+
+                    result.append((after, split_pos, end, 'reference'))
                     continue
 
-                split_pos = start + split_offset
+        # ---------- CASE 2: reference → trailing commentary ----------
+        if classification == 'reference':
+            match = tail_pattern.match(text)
 
-                # commentary part
-                if before:
-                    result.append((before, start, split_pos, 'commentary'))
+            if match:
+                before = match.group(1).strip()
+                after = match.group(2).strip()
 
-                # reference part (force as reference)
-                result.append((after, split_pos, end, 'reference'))
+                split_offset = text.lower().find(after.lower())
+                if split_offset != -1:
+                    split_pos = start + split_offset
 
-            else:
-                result.append((text, start, end, classification))
+                    result.append((before, start, split_pos, 'reference'))
+                    result.append((after, split_pos, end, 'commentary'))
+                    continue
 
-        else:
-            result.append((text, start, end, classification))
+        result.append((text, start, end, classification))
 
     return result
 
