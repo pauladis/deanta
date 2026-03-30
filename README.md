@@ -4,6 +4,13 @@
 
 This service identifies **reference content** and **commentary** within paragraphs containing HTML/XML-like markup, and returns the same paragraph with semantic tags applied.
 
+## Prerequisites
+
+- Python 3.10+ (for local development)
+- Docker & Docker Compose (for containerized deployment)
+- pip (Python package manager)
+- Git (optional, for version control)
+
 ## API
 
 
@@ -42,7 +49,48 @@ Output must be identical to input except for wrapper tags.
 - Wrapper: inserts tags using position-based mapping without breaking XML
 
 
-### How to run
+## Installation & Setup
 
+### Option 1: Run with Docker (Recommended)
+
+```bash
+# Build and start the container
 docker-compose build
 docker-compose up
+```
+
+The API will be available at `http://localhost:8000`
+
+### Option 2: Run Locally
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Download NLTK data
+python -m nltk.downloader punkt
+
+# Run the server
+python app/main.py
+```
+
+The API will be available at `http://localhost:8000`
+
+## Testing
+
+```bash
+# Run all tests (requires running server for endpoint tests)
+pytest -v
+
+# Run only unit tests (no server required)
+pytest tests/test_parser.py -v
+
+# Run only integration tests (requires running server)
+pytest tests/test_endpoint.py -v
+```
+
+## API Endpoints
+
+- `POST /parse-paragraph` - Classify and tag paragraph content
+- `GET /health` - Health check
+- `GET /` - API info
