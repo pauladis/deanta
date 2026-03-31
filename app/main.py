@@ -47,26 +47,43 @@ def split_commentary_phrases(
 
     for text, start, end, label in segments:
 
-        # ---------- CASE 1: commentary → reference ----------
-        match = REFERENCE_TRIGGERS.search(text)
+        clean = text.strip()
+
+        # ---------- CASE 1: split if it STARTS with trigger ----------
+        match = re.match(r'^(see|cf\.|compare|e\.g\.)\b', clean, re.IGNORECASE)
 
         if label == "commentary" and match:
             split_idx = match.start()
 
-            before = text[:split_idx].strip()
-            after = text[split_idx:].strip()
+            before = clean[:split_idx].strip()
+            after = clean[split_idx:].strip()
 
-            split_pos = start + split_idx
+            # IMPORTANT: real offset (not using stripped text blindly)
+            absolute_idx = text.lower().find(after.lower())
+            split_pos = start + absolute_idx
 
             if before:
                 result.append((before, start, split_pos, "commentary"))
 
-            result.append((after, split_pos, end, "reference"))
+            # After extraction, recursively check the extracted reference for trailing commentary
+            # E.g., "see X, for Y" -> extract "see X, for Y" as reference, then split off ", for Y"
+            ref_text = after
+            ref_start = split_pos
+            tail = re.match(r'^(.*?,\s+)(for\s+.+)$', ref_text, re.IGNORECASE)
+            if tail:
+                ref_part = tail.group(1)
+                comment_part = tail.group(2)
+                split_idx_2 = ref_text.lower().find(comment_part.lower())
+                split_pos_2 = ref_start + split_idx_2
+                result.append((ref_part, ref_start, split_pos_2, "reference"))
+                result.append((comment_part, split_pos_2, end, "commentary"))
+            else:
+                result.append((after, split_pos, end, "reference"))
             continue
 
         # ---------- CASE 2: trailing commentary ----------
         if label == "reference":
-            tail = TRAILING_COMMENTARY.match(text)
+            tail = re.match(r'^(.*?,\s+)(for\s+.+)$', text, re.IGNORECASE)
 
             if tail:
                 ref_part = tail.group(1)
@@ -109,7 +126,12 @@ def classify_paragraph(
     classified_segments = split_commentary_phrases(classified_segments)
 
     # ---------- WRAP XML ----------
-    wrapper = SmartTagWrapper(paragraph_text, classified_segments)
+    wrapper = SmartTagWrapper(
+        paragraph_text,
+        classified_segments,
+        tokenizer.text,
+        tokenizer.position_map
+    )
     wrapped_xml = wrapper.get_wrapped_xml()
 
     return wrapped_xml, classified_segments

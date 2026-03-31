@@ -109,13 +109,16 @@ class CitationAwareTokenizer:
         if not segment_text.strip():
             return Segment("", 0, 0)
 
-        start = max(0, min(start, len(self.position_map) - 1))
-        end = max(0, min(end, len(self.position_map) - 1))
+        # Clamp indices to valid range
+        start = max(0, min(start, len(self.text) - 1))
+        end = max(0, min(end, len(self.text) - 1))
 
+        # Return positions in text-space (not XML-space)
+        # These are indices into self.text (the semantic text)
         return Segment(
             text=segment_text.strip(),
-            start_pos=self.position_map[start],
-            end_pos=self.position_map[end] + 1
+            start_pos=start,
+            end_pos=end + 1
         )
 
     def _skip_spaces(self, text, i):
@@ -146,8 +149,9 @@ class CitationAwareTokenizer:
         if re.search(r'\b(pp|p|vol|no|ed)\.\s*$', before_clean, re.IGNORECASE):
             return False
 
-        # INITIALS: J. / J. C. / R.T.
-        if re.search(r'(?:\b[A-Z]\.\s*){1,3}$', before_clean):
+        # INITIALS: J. / J. C. / R.T. / E. P.
+        # This includes cases with multiple initials, even without a surname following yet
+        if re.search(r'(?:\b[A-Z]\.\s*){1,4}$', before_clean):
             return False
 
         # INITIALS + surname (J. C. Davis)
@@ -156,6 +160,26 @@ class CitationAwareTokenizer:
 
         # ---------- SPLIT ONLY IF STRONG SIGNAL ----------
         if after < len(text):
+            # Additional heuristic: author initials followed by lowercase name
+            # e.g., "E. P. Thompson" should not split at "P."
+            # If before ends with capital letter (initial) and after starts with capital word
+            # then we're likely in an author citation pattern like "E. P. Thompson"
+            if before_clean and before_clean[-1].isupper():
+                check_after = text[after:min(after + 15, len(text))]
+                
+                # Does the next word start with capital followed by lowercase?
+                # This pattern indicates a proper name, not a new sentence
+                if re.match(r'[A-Z][a-z]+', check_after):
+                    # Pattern looks like name: "Thompson", "Davis", etc.
+                    # Check if we're in a citation context (multiple capitals/periods before)
+                    if re.search(r'[A-Z]\. [A-Z]\. ', before_clean + " X. "):
+                        # We're in a multi-initial pattern like "E. P. Thompson"
+                        return False
+                    # Also check if before ends with "X." where X is single capital
+                    # This handles the "E. P." -> "Thompson" case where before is "E. P"
+                    if re.search(r'[A-Z]\s*$', before_clean):
+                        return False
+
             return (
                 text[after].isupper()
                 and re.match(r'[A-Z][a-z]+', text[after:])
