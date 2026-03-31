@@ -46,27 +46,31 @@ def split_commentary_phrases(
     result = []
 
     for text, start, end, label in segments:
-
-        clean = text.strip()
+        # CRITICAL: DO NOT strip text - it breaks position tracking!
+        # Work with original text to preserve all whitespace
 
         # ---------- CASE 1: split if it STARTS with trigger ----------
-        match = re.match(r'^(see|cf\.|compare|e\.g\.)\b', clean, re.IGNORECASE)
+        # Use lstrip to find the trigger at the beginning (ignoring leading whitespace)
+        text_lstripped = text.lstrip()
+        match = re.match(r'^(see|cf\.|compare|e\.g\.)\b', text_lstripped, re.IGNORECASE)
 
         if label == "commentary" and match:
-            split_idx = match.start()
+            # Find how much whitespace was stripped
+            ws_prefix_len = len(text) - len(text_lstripped)
+            
+            # The trigger starts after the whitespace
+            trigger_start = ws_prefix_len + match.start()
+            trigger_end = ws_prefix_len + match.end()
+            
+            before = text[:trigger_start]  # Keep original (with whitespace)
+            after = text[trigger_start:]   # Keep original (with whitespace)
 
-            before = clean[:split_idx].strip()
-            after = clean[split_idx:].strip()
+            split_pos = start + trigger_start
 
-            # IMPORTANT: real offset (not using stripped text blindly)
-            absolute_idx = text.lower().find(after.lower())
-            split_pos = start + absolute_idx
-
-            if before:
+            if before.strip():  # Only append if non-empty after stripping
                 result.append((before, start, split_pos, "commentary"))
 
-            # After extraction, recursively check the extracted reference for trailing commentary
-            # E.g., "see X, for Y" -> extract "see X, for Y" as reference, then split off ", for Y"
+            # After extraction, check the extracted reference for trailing commentary
             ref_text = after
             ref_start = split_pos
             tail = re.match(r'^(.*?,\s+)(for\s+.+)$', ref_text, re.IGNORECASE)

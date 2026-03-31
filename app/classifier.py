@@ -33,7 +33,7 @@ class EnhancedClassifier:
     ]
 
     REFERENCE_PATTERNS = [
-        r'\(\d{4}\)',
+        r'\(.*?\d{4}.*?\)',  # Year inside parentheses (with other content)
         r'pp?\.\s*\d+',
         r'https?://',
         r'(?:Cambridge|Oxford|Press|Routledge|Palgrave)',
