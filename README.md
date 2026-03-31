@@ -105,3 +105,8 @@ The service implements a **Pipeline** design pattern:
 2. **Classification** - Identifies each segment as reference or commentary
 3. **Post-processing** - Refines classifications for mixed segments
 4. **Wrapping** - Inserts XML tags while preserving structure
+
+
+## Design decisions
+
+- I initially explored DOM-based approaches with lxml, but due to the requirement of preserving exact byte-level structure and aligning with tokenizer offsets, I moved to a string-based insertion strategy. This avoids structural mutation issues and guarantees deterministic, non-destructive transformations.

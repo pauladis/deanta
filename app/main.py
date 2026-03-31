@@ -1,17 +1,20 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
-import re
 from typing import List, Tuple
+import re
 
 from .tokenizer import CitationAwareTokenizer
 from .classifier import EnhancedClassifier
 from .wrapper import SmartTagWrapper
 
 
+# ---------- APP ----------
+
 app = FastAPI(
     title="Deanta API",
-    description="API for classifying reference vs commentary content in paragraphs",
-    version="1.0.0"
+    description="Reference vs Commentary classifier (XML output)",
+    version="2.0.0"
 )
 
 classifier = EnhancedClassifier()
@@ -23,11 +26,7 @@ class ParagraphInput(BaseModel):
     text: str
 
 
-class ParagraphOutput(BaseModel):
-    classified_paragraph: str
-
-
-# ---------- SPLITTING LOGIC ----------
+# ---------- SPLITTING ----------
 
 REFERENCE_TRIGGERS = re.compile(
     r'\b(see|cf\.|compare|e\.g\.)\b',
@@ -43,88 +42,73 @@ TRAILING_COMMENTARY = re.compile(
 def split_commentary_phrases(
     segments: List[Tuple[str, int, int, str]]
 ) -> List[Tuple[str, int, int, str]]:
-    """
-    Robust splitter that:
-    - Handles multiple "see / cf. / compare"
-    - Splits commentary → reference
-    - Splits reference → trailing commentary
-    """
 
     result = []
 
-    for text, start, end, classification in segments:
+    for text, start, end, label in segments:
 
-        remaining_text = text
-        offset_base = start
+        # ---------- CASE 1: commentary → reference ----------
+        match = REFERENCE_TRIGGERS.search(text)
 
-        while True:
-            match = REFERENCE_TRIGGERS.search(remaining_text)
+        if label == "commentary" and match:
+            split_idx = match.start()
 
-            # ---------- NO MORE SPLITS ----------
-            if not match:
-                result.append((remaining_text, offset_base, end, classification))
-                break
+            before = text[:split_idx].strip()
+            after = text[split_idx:].strip()
 
-            trigger_start = match.start()
+            split_pos = start + split_idx
 
-            before = remaining_text[:trigger_start].strip()
-            after = remaining_text[trigger_start:].strip()
-
-            split_pos = offset_base + trigger_start
-
-            # ---------- COMMENTARY → REFERENCE ----------
             if before:
-                result.append((before, offset_base, split_pos, 'commentary'))
+                result.append((before, start, split_pos, "commentary"))
 
-            # Now process the "after" part
-            # Check trailing commentary inside reference
-            tail_match = TRAILING_COMMENTARY.match(after)
+            result.append((after, split_pos, end, "reference"))
+            continue
 
-            if tail_match:
-                ref_part = tail_match.group(1).strip()
-                comment_part = tail_match.group(2).strip()
+        # ---------- CASE 2: trailing commentary ----------
+        if label == "reference":
+            tail = TRAILING_COMMENTARY.match(text)
 
-                ref_end_pos = split_pos + len(ref_part)
+            if tail:
+                ref_part = tail.group(1)
+                comment_part = tail.group(2)
 
-                result.append((ref_part, split_pos, ref_end_pos, 'reference'))
-                result.append((comment_part, ref_end_pos, end, 'commentary'))
-                break
+                split_idx = text.lower().find(comment_part.lower())
+                split_pos = start + split_idx
 
-            else:
-                result.append((after, split_pos, end, 'reference'))
-                break
+                result.append((ref_part, start, split_pos, "reference"))
+                result.append((comment_part, split_pos, end, "commentary"))
+                continue
+
+        result.append((text, start, end, label))
 
     return result
 
 
-# ---------- CORE PIPELINE ----------
+# ---------- PIPELINE ----------
 
 def classify_paragraph(
     paragraph_text: str
 ) -> Tuple[str, List[Tuple[str, int, int, str]]]:
-    """
-    Full pipeline:
-    XML → Tokenize → Classify → Split → Wrap
-    """
 
     tokenizer = CitationAwareTokenizer(paragraph_text)
     segments = tokenizer.get_segments()
 
     classified_segments = []
 
-    for segment in segments:
-        classification = classifier.classify(segment.text)
+    for seg in segments:
+        label = classifier.classify(seg.text)
 
         classified_segments.append((
-            segment.text,
-            segment.start_pos,
-            segment.end_pos,
-            classification
+            seg.text,
+            seg.start_pos,
+            seg.end_pos,
+            label
         ))
 
-    # 🔥 critical step
+    # ---------- SPLIT MIXED SEGMENTS ----------
     classified_segments = split_commentary_phrases(classified_segments)
 
+    # ---------- WRAP XML ----------
     wrapper = SmartTagWrapper(paragraph_text, classified_segments)
     wrapped_xml = wrapper.get_wrapped_xml()
 
@@ -133,14 +117,20 @@ def classify_paragraph(
 
 # ---------- API ----------
 
-@app.post("/parse-paragraph", response_model=ParagraphOutput)
-async def parse_paragraph(input_data: ParagraphInput) -> ParagraphOutput:
+@app.post("/parse-paragraph")
+async def parse_paragraph(input_data: ParagraphInput):
+
     if not input_data.text or not input_data.text.strip():
         raise HTTPException(status_code=400, detail="Paragraph text cannot be empty")
 
     try:
-        wrapped_paragraph, _ = classify_paragraph(input_data.text)
-        return ParagraphOutput(classified_paragraph=wrapped_paragraph)
+        wrapped_xml, _ = classify_paragraph(input_data.text)
+
+        return Response(
+            content=wrapped_xml,
+            media_type="application/xml",
+            status_code=200
+        )
 
     except Exception as e:
         raise HTTPException(
@@ -154,10 +144,7 @@ async def root():
     return {
         "status": "ok",
         "message": "Deanta API is running",
-        "endpoints": {
-            "parse_paragraph": "POST /parse-paragraph",
-            "health": "GET /health"
-        }
+        "output": "XML"
     }
 
 

@@ -3,11 +3,9 @@ import re
 
 class EnhancedClassifier:
     """
-    Scoring-based classifier for reference vs commentary.
-    More robust for academic text and mixed structures.
+    Heuristic classifier for reference vs commentary.
+    Returns ONLY label (no confidence).
     """
-
-    # ---------- PATTERNS ----------
 
     COMMENTARY_PATTERNS = [
         r'^See\s+also:?',
@@ -35,15 +33,15 @@ class EnhancedClassifier:
     ]
 
     REFERENCE_PATTERNS = [
-        r'\(\d{4}\)',                 # year
-        r'pp?\.\s*\d+',               # pages
+        r'\(\d{4}\)',
+        r'pp?\.\s*\d+',
         r'https?://',
         r'(?:Cambridge|Oxford|Press|Routledge|Palgrave)',
         r'(?:Journal|Conference)',
     ]
 
     AUTHOR_PATTERN = re.compile(
-        r'\b[A-Z][a-z]+(?:\s+[A-Z]\.){1,2}',  # e.g. John D., E. P.
+        r'\b[A-Z][a-z]+(?:\s+[A-Z]\.){1,2}'
     )
 
     COMMENTARY_VERBS = re.compile(
@@ -58,60 +56,56 @@ class EnhancedClassifier:
 
     def __init__(self):
         self.commentary = [re.compile(p, re.IGNORECASE) for p in self.COMMENTARY_PATTERNS]
-        self.reference = [re.compile(p) for p in self.REFERENCE_PATTERNS]
+        self.reference = [re.compile(p, re.IGNORECASE) for p in self.REFERENCE_PATTERNS]
 
-    # ---------- CLASSIFIER ----------
-
-    def classify(self, segment_text: str) -> str:
-        text = segment_text.strip()
+    def classify(self, text: str) -> str:
+        text = text.strip()
 
         if not text:
             return "commentary"
 
-        reference_score = 0
-        commentary_score = 0
-
         # ---------- HARD RULES ----------
 
-        # "See also:" must be commentary
+        # "See also:" must be commentary (so it can be split later)
         if re.match(r'^\s*See\s+also:', text, re.IGNORECASE):
             return "commentary"
 
-        # "see Author" → strong reference
-        if re.match(r'^\s*see\s+[A-Z]', text, re.IGNORECASE):
-            return "reference"
+        # DO NOT classify "see X" as reference here
+        # → let splitter handle it
+        if re.match(r'^\s*see\s+', text, re.IGNORECASE):
+            return "commentary"
 
-        # ---------- COMMENTARY SIGNALS ----------
+        # ---------- SCORING ----------
+        reference_score = 0
+        commentary_score = 0
 
-        for pattern in self.commentary:
-            if pattern.search(text):
+        # Commentary signals
+        for p in self.commentary:
+            if p.search(text):
                 commentary_score += 2
 
         if self.COMMENTARY_VERBS.search(text):
             commentary_score += 1
 
-        # ---------- REFERENCE SIGNALS ----------
-
-        for pattern in self.reference:
-            if pattern.search(text):
+        # Reference signals
+        for p in self.reference:
+            if p.search(text):
                 reference_score += 2
 
         if self.AUTHOR_PATTERN.search(text):
             reference_score += 2
 
-        if self.REFERENCE_TRIGGER.search(text):
-            reference_score += 1
+        # IMPORTANT: "see" should NOT push to reference
+        # (splitter handles it instead)
 
-        # ---------- LENGTH HEURISTICS ----------
-
+        # Length heuristic
         if len(text) > 120:
-            reference_score += 1  # long citation block
+            reference_score += 1
 
         if len(text) < 25:
             commentary_score += 1
 
-        # ---------- FINAL DECISION ----------
-
+        # ---------- DECISION ----------
         if reference_score > commentary_score:
             return "reference"
 

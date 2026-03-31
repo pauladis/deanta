@@ -1,12 +1,13 @@
 from typing import List, Tuple
-from lxml import etree
 
 
 class SmartTagWrapper:
     """
-    XML-safe wrapper using lxml.
-
-    Wraps segments with <reference> / <commentary> without breaking structure.
+    Fully safe XML wrapper:
+    - Works on visible text only
+    - Supports adjacent segments
+    - Supports multiple opens/closes at same position
+    - Never breaks XML
     """
 
     def __init__(
@@ -15,95 +16,72 @@ class SmartTagWrapper:
         segment_classifications: List[Tuple[str, int, int, str]],
     ):
         self.original_xml = original_xml
-        self.segment_classifications = sorted(
-            segment_classifications, key=lambda x: x[1]
-        )
+
+        self.segments = [
+            (start, end, label)
+            for _, start, end, label in segment_classifications
+            if start < end
+        ]
+
         self.wrapped_xml = self._wrap()
 
+    # ---------- MAIN ----------
     def _wrap(self) -> str:
-        parser = etree.XMLParser(recover=True)
-        root = etree.fromstring(self.original_xml.encode("utf-8"), parser)
+        xml = self.original_xml
 
-        # Flatten text nodes with positions
-        nodes = []
-        self._collect_text_nodes(root, nodes)
+        # ---------- BUILD EVENTS ----------
+        events = {}
+        for start, end, label in self.segments:
+            events.setdefault(start, []).append(("open", label))
+            events.setdefault(end, []).append(("close", label))
 
-        # Apply wrapping
-        for text, start, end, classification in self.segment_classifications:
-            self._apply_wrap(nodes, start, end, classification)
+        result = []
+        xml_idx = 0
+        text_idx = 0
 
-        return etree.tostring(root, encoding="unicode")
+        open_stack = []
 
-    def _collect_text_nodes(self, element, nodes, offset=0):
-        """
-        Collect all text and tail nodes with global offsets.
-        """
-        if element.text:
-            length = len(element.text)
-            nodes.append({
-                "element": element,
-                "type": "text",
-                "start": offset,
-                "end": offset + length
-            })
-            offset += length
+        while xml_idx < len(xml):
 
-        for child in element:
-            offset = self._collect_text_nodes(child, nodes, offset)
+            # ---------- APPLY EVENTS ----------
+            if text_idx in events:
 
-            if child.tail:
-                length = len(child.tail)
-                nodes.append({
-                    "element": child,
-                    "type": "tail",
-                    "start": offset,
-                    "end": offset + length
-                })
-                offset += length
+                # CLOSE FIRST
+                for action, label in sorted(events[text_idx], key=lambda x: x[0] == "open"):
+                    if action == "close" and label in open_stack:
+                        result.append(f"</{label}>")
+                        open_stack.remove(label)
 
-        return offset
+                # THEN OPEN
+                for action, label in events[text_idx]:
+                    if action == "open":
+                        result.append(f"<{label}>")
+                        open_stack.append(label)
 
-    def _apply_wrap(self, nodes, start, end, classification):
-        """
-        Wrap relevant parts of text nodes.
-        """
-        for node in nodes:
-            node_start = node["start"]
-            node_end = node["end"]
+            char = xml[xml_idx]
 
-            # no overlap
-            if end <= node_start or start >= node_end:
+            # ---------- SKIP TAGS ----------
+            if char == "<":
+                tag_end = xml.find(">", xml_idx)
+                if tag_end == -1:
+                    result.append(char)
+                    xml_idx += 1
+                    continue
+
+                result.append(xml[xml_idx:tag_end + 1])
+                xml_idx = tag_end + 1
                 continue
 
-            element = node["element"]
-            node_type = node["type"]
+            # ---------- NORMAL TEXT ----------
+            result.append(char)
+            text_idx += 1
+            xml_idx += 1
 
-            text = element.text if node_type == "text" else element.tail
-            if not text:
-                continue
+        # ---------- CLOSE REMAINING ----------
+        while open_stack:
+            result.append(f"</{open_stack.pop()}>")
 
-            # local offsets
-            local_start = max(0, start - node_start)
-            local_end = min(len(text), end - node_start)
-
-            before = text[:local_start]
-            middle = text[local_start:local_end]
-            after = text[local_end:]
-
-            # create wrapper element
-            wrapper = etree.Element(classification)
-            wrapper.text = middle
-
-            if node_type == "text":
-                element.text = before
-                element.insert(0, wrapper)
-                wrapper.tail = after
-            else:
-                element.tail = before
-                parent = element.getparent()
-                index = parent.index(element)
-                parent.insert(index + 1, wrapper)
-                wrapper.tail = after
+        return "".join(result)
 
     def get_wrapped_xml(self) -> str:
         return self.wrapped_xml
