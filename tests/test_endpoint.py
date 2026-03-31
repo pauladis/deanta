@@ -48,8 +48,8 @@ def test_parse_paragraph(test_cases, test_id):
     )
     
     assert response.status_code == 200, f"Endpoint returned {response.status_code}"
-    result = response.json()
-    actual_output = result.get("classified_paragraph")
+    # Response is now raw XML, not JSON
+    actual_output = response.text
     
     assert actual_output == expected_output, \
         f"Test {test_id}: Output mismatch\nExpected length: {len(expected_output)}\nActual length: {len(actual_output)}"

@@ -3,20 +3,19 @@ import re
 
 class EnhancedClassifier:
     """
-    Classifies segments as 'reference' or 'commentary'
-    using semantic + citation-aware heuristics.
+    Scoring-based classifier for reference vs commentary.
+    More robust for academic text and mixed structures.
     """
 
-    # ---------- COMMENTARY PATTERNS ----------
+    # ---------- PATTERNS ----------
+
     COMMENTARY_PATTERNS = [
-        # Explicit discourse markers
         r'^See\s+also:?',
         r'^In\s+addition',
         r'^Furthermore',
         r'^Moreover',
         r'^Additionally',
 
-        # Academic framing
         r'^For\s+(?:an?\s+)?(?:in-depth|detailed|full|further)\s+(?:discussion|analysis)',
         r'^For\s+(?:a\s+)?(?:revised|different|alternative)\s+(?:interpretation|view)',
         r'^For\s+(?:discussion|analysis)',
@@ -24,7 +23,6 @@ class EnhancedClassifier:
         r'^Compare',
         r'^Cf\.',
 
-        # Inferred commentary
         r'^Building\s+on',
         r'^It\s+is\s+(?:also\s+)?argued',
         r'^It\s+should\s+be\s+noted',
@@ -36,25 +34,24 @@ class EnhancedClassifier:
         r'^The\s+(?:role|evidence)',
     ]
 
-    # ---------- REFERENCE PATTERNS ----------
     REFERENCE_PATTERNS = [
-        r'[A-Z][a-z]+(?:,\s+[A-Z]\.)+',   # Author names
-        r'\(\d{4}\)',                    # Year
-        r'pp?\.\s*\d+',                  # Page numbers
-        r'https?://',                    # URLs
-        r'(?:IMF|UNESCO|OECD|Cambridge|Oxford|Palgrave)',
-        r'(?:Working Papers?|Journal|Conference)',
+        r'\(\d{4}\)',                 # year
+        r'pp?\.\s*\d+',               # pages
+        r'https?://',
+        r'(?:Cambridge|Oxford|Press|Routledge|Palgrave)',
+        r'(?:Journal|Conference)',
     ]
 
-    # ---------- NARRATIVE VERBS ----------
+    AUTHOR_PATTERN = re.compile(
+        r'\b[A-Z][a-z]+(?:\s+[A-Z]\.){1,2}',  # e.g. John D., E. P.
+    )
+
     COMMENTARY_VERBS = re.compile(
-        r'\b(argue|suggest|indicate|highlight|provide|examine|explore|discuss|debate|debated|analyze|analyse|show|demonstrate)\b',
+        r'\b(argue|suggest|indicate|highlight|provide|examine|explore|discuss|debate|analyze|show|demonstrate)\b',
         re.IGNORECASE
     )
 
-    # ---------- REFERENCE TRIGGERS ----------
-    # These indicate "reference is coming next"
-    REFERENCE_INTRO = re.compile(
+    REFERENCE_TRIGGER = re.compile(
         r'\b(see|cf\.|compare|e\.g\.)\b',
         re.IGNORECASE
     )
@@ -63,46 +60,59 @@ class EnhancedClassifier:
         self.commentary = [re.compile(p, re.IGNORECASE) for p in self.COMMENTARY_PATTERNS]
         self.reference = [re.compile(p) for p in self.REFERENCE_PATTERNS]
 
+    # ---------- CLASSIFIER ----------
+
     def classify(self, segment_text: str) -> str:
-        segment_text = segment_text.strip()
+        text = segment_text.strip()
 
-        # ---------- SPECIAL CASES ----------
+        if not text:
+            return "commentary"
 
-        # "See also: ..." → commentary (must be split later)
-        if re.match(r'^\s*See\s+also:', segment_text, re.IGNORECASE):
-            return 'commentary'
+        reference_score = 0
+        commentary_score = 0
 
-        # "see Author..." → reference
-        if re.match(r'^\s*see\s+[A-Z]', segment_text, re.IGNORECASE):
-            return 'reference'
+        # ---------- HARD RULES ----------
 
-        # ---------- COMMENTARY (explicit patterns) ----------
+        # "See also:" must be commentary
+        if re.match(r'^\s*See\s+also:', text, re.IGNORECASE):
+            return "commentary"
+
+        # "see Author" → strong reference
+        if re.match(r'^\s*see\s+[A-Z]', text, re.IGNORECASE):
+            return "reference"
+
+        # ---------- COMMENTARY SIGNALS ----------
+
         for pattern in self.commentary:
-            if pattern.search(segment_text):
-                return 'commentary'
+            if pattern.search(text):
+                commentary_score += 2
 
-        # ---------- COMMENTARY (semantic narrative) ----------
-        if self.COMMENTARY_VERBS.search(segment_text):
-            return 'commentary'
+        if self.COMMENTARY_VERBS.search(text):
+            commentary_score += 1
 
-        # ---------- MIXED CASE DETECTION ----------
-        # e.g. "For a revised interpretation, see X"
-        if self.REFERENCE_INTRO.search(segment_text):
-            # If it starts like a sentence → commentary intro
-            if re.match(r'^[A-Z]', segment_text):
-                return 'commentary'
+        # ---------- REFERENCE SIGNALS ----------
 
-        # ---------- REFERENCE ----------
-        reference_matches = sum(1 for p in self.reference if p.search(segment_text))
+        for pattern in self.reference:
+            if pattern.search(text):
+                reference_score += 2
 
-        if reference_matches >= 2:
-            return 'reference'
+        if self.AUTHOR_PATTERN.search(text):
+            reference_score += 2
 
-        if re.search(r'^[A-Z][a-z]+.*\(\d{4}\)', segment_text):
-            return 'reference'
+        if self.REFERENCE_TRIGGER.search(text):
+            reference_score += 1
 
-        # ---------- FALLBACK ----------
-        if len(segment_text) < 20 and reference_matches == 0:
-            return 'commentary'
+        # ---------- LENGTH HEURISTICS ----------
 
-        return 'reference'
+        if len(text) > 120:
+            reference_score += 1  # long citation block
+
+        if len(text) < 25:
+            commentary_score += 1
+
+        # ---------- FINAL DECISION ----------
+
+        if reference_score > commentary_score:
+            return "reference"
+
+        return "commentary"

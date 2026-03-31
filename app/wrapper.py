@@ -1,128 +1,109 @@
 from typing import List, Tuple
-import logging
-
-logger = logging.getLogger("deanta")
+from lxml import etree
 
 
 class SmartTagWrapper:
     """
-    Wraps text segments with classification tags while preserving DOM structure.
-    
-    This class carefully inserts <reference> and <commentary> tags around
-    classified text segments while maintaining the integrity of existing XML/HTML tags.
-    
-    Attributes:
-        original_xml: The original paragraph text with XML/HTML tags
-        segment_classifications: List of (text, start, end, classification) tuples
-        wrapped_xml: The result after wrapping with tags
+    XML-safe wrapper using lxml.
+
+    Wraps segments with <reference> / <commentary> without breaking structure.
     """
 
     def __init__(
         self,
         original_xml: str,
         segment_classifications: List[Tuple[str, int, int, str]],
-    ) -> None:
-        if not isinstance(original_xml, str):
-            raise TypeError("original_xml must be a string")
-        if not isinstance(segment_classifications, list):
-            raise TypeError("segment_classifications must be a list")
-
-        self.original_xml: str = original_xml
-        self.segment_classifications: List[Tuple[str, int, int, str]] = segment_classifications
-        self.wrapped_xml: str = self._wrap()
+    ):
+        self.original_xml = original_xml
+        self.segment_classifications = sorted(
+            segment_classifications, key=lambda x: x[1]
+        )
+        self.wrapped_xml = self._wrap()
 
     def _wrap(self) -> str:
-        """
-        Wrap segments with classification tags while preserving XML/HTML structure.
-        
-        Returns:
-            str: The wrapped XML with <reference> and <commentary> tags inserted
-            
-        Raises:
-            ValueError: If segment positions are invalid or overlapping
-        """
-        # Validate segments
+        parser = etree.XMLParser(recover=True)
+        root = etree.fromstring(self.original_xml.encode("utf-8"), parser)
+
+        # Flatten text nodes with positions
+        nodes = []
+        self._collect_text_nodes(root, nodes)
+
+        # Apply wrapping
         for text, start, end, classification in self.segment_classifications:
-            if not isinstance(start, int) or not isinstance(end, int):
-                logger.error(f"Invalid segment positions: start={start}, end={end}")
-                raise ValueError("Segment start and end must be integers")
-            if start < 0 or end < 0 or start > end:
-                logger.error(f"Invalid segment range: start={start}, end={end}")
-                raise ValueError(f"Invalid segment range: {start}-{end}")
-            if end > len(self.original_xml):
-                logger.error(f"Segment end {end} exceeds text length {len(self.original_xml)}")
-                raise ValueError(f"Segment end {end} exceeds text length")
+            self._apply_wrap(nodes, start, end, classification)
 
-        # Build (start, end, classification)
-        segments = [
-            (start, end, classification)
-            for _, start, end, classification in self.segment_classifications
-        ]
-        segments.sort(key=lambda x: x[0])
+        return etree.tostring(root, encoding="unicode")
 
-        result = []
-        text_idx = 0
-        xml_idx = 0
-        seg_idx = 0
-        current_class = None
+    def _collect_text_nodes(self, element, nodes, offset=0):
+        """
+        Collect all text and tail nodes with global offsets.
+        """
+        if element.text:
+            length = len(element.text)
+            nodes.append({
+                "element": element,
+                "type": "text",
+                "start": offset,
+                "end": offset + length
+            })
+            offset += length
 
-        # ---------- SAFE <para> DETECTION ----------
-        para_start = self.original_xml.lower().find("<para")
-        if para_start != -1:
-            para_open_end = self.original_xml.find(">", para_start) + 1
-        else:
-            para_open_end = 0
+        for child in element:
+            offset = self._collect_text_nodes(child, nodes, offset)
 
-        while xml_idx < len(self.original_xml):
+            if child.tail:
+                length = len(child.tail)
+                nodes.append({
+                    "element": child,
+                    "type": "tail",
+                    "start": offset,
+                    "end": offset + length
+                })
+                offset += length
 
-            # ---------- CLOSE (handle multiple boundaries) ----------
-            while current_class is not None and seg_idx < len(segments):
-                seg_start, seg_end, classification = segments[seg_idx]
+        return offset
 
-                if text_idx == seg_end:
-                    result.append(f"</{current_class}>")
-                    current_class = None
-                    seg_idx += 1
-                else:
-                    break
+    def _apply_wrap(self, nodes, start, end, classification):
+        """
+        Wrap relevant parts of text nodes.
+        """
+        for node in nodes:
+            node_start = node["start"]
+            node_end = node["end"]
 
-            # ---------- OPEN ----------
-            if seg_idx < len(segments):
-                seg_start, seg_end, classification = segments[seg_idx]
+            # no overlap
+            if end <= node_start or start >= node_end:
+                continue
 
-                if text_idx == seg_start:
-                    # Prevent wrapping <para> itself
-                    if xml_idx >= para_open_end:
-                        if current_class != classification:
-                            if current_class is not None:
-                                result.append(f"</{current_class}>")
-                            result.append(f"<{classification}>")
-                            current_class = classification
+            element = node["element"]
+            node_type = node["type"]
 
-            # ---------- COPY ----------
-            if self.original_xml[xml_idx] == "<":
-                tag_end = self.original_xml.find(">", xml_idx)
-                if tag_end != -1:
-                    result.append(self.original_xml[xml_idx: tag_end + 1])
-                    xml_idx = tag_end + 1
-                else:
-                    result.append(self.original_xml[xml_idx])
-                    xml_idx += 1
+            text = element.text if node_type == "text" else element.tail
+            if not text:
+                continue
+
+            # local offsets
+            local_start = max(0, start - node_start)
+            local_end = min(len(text), end - node_start)
+
+            before = text[:local_start]
+            middle = text[local_start:local_end]
+            after = text[local_end:]
+
+            # create wrapper element
+            wrapper = etree.Element(classification)
+            wrapper.text = middle
+
+            if node_type == "text":
+                element.text = before
+                element.insert(0, wrapper)
+                wrapper.tail = after
             else:
-                result.append(self.original_xml[xml_idx])
-                text_idx += 1
-                xml_idx += 1
-
-        # ---------- FINAL CLOSE ----------
-        if current_class is not None:
-            result.append(f"</{current_class}>")
-
-        return "".join(result)
+                element.tail = before
+                parent = element.getparent()
+                index = parent.index(element)
+                parent.insert(index + 1, wrapper)
+                wrapper.tail = after
 
     def get_wrapped_xml(self) -> str:
-        """Retrieve the wrapped XML result.
-        
-        Returns:
-            str: The paragraph text with classification tags inserted
-        """
         return self.wrapped_xml

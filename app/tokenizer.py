@@ -1,6 +1,6 @@
-import re
 from typing import List
 from dataclasses import dataclass
+import re
 
 
 @dataclass
@@ -12,40 +12,53 @@ class Segment:
 
 class CitationAwareTokenizer:
     """
-    Splits text into citation-aware segments.
-
-    Rules:
-    - Primary split: semicolon (;)
-    - Period (.) only splits when it's a TRUE boundary between citations
-    - Avoid splitting inside single citations (Author → Year → Title → Journal)
-    - Ignore <span class="del"> for semantics
-    - Include <span class="ins"> content
+    Tokenizes XML text while preserving correct position mapping.
     """
 
     def __init__(self, xml_text: str):
-        self.original_text = xml_text
-        self.text = self._normalize_for_semantics(xml_text)
+        self.original_xml = xml_text
+        self.text, self.position_map = self._extract_semantic_text(xml_text)
         self.segments = self._tokenize()
 
-    # ---------- NORMALIZATION ----------
-    def _normalize_for_semantics(self, xml_text: str) -> str:
-        """
-        Prepare text for semantic processing:
-        - Remove deleted text
-        - Keep inserted text
-        - Strip all tags
-        """
+    # ---------- EXTRACT TEXT + POSITION MAP ----------
+    def _extract_semantic_text(self, xml: str):
+        text = []
+        position_map = []
 
-        # Remove deleted text completely
-        text = re.sub(r'<span class="del"[^>]*>.*?</span>', '', xml_text)
+        i = 0
+        inside_tag = False
+        skip_del = False
 
-        # Keep inserted text, remove tags
-        text = re.sub(r'<span class="ins"[^>]*>(.*?)</span>', r'\1', text)
+        while i < len(xml):
+            char = xml[i]
 
-        # Remove remaining tags
-        text = re.sub(r'<[^>]+>', '', text)
+            # detect tag start
+            if char == "<":
+                tag_end = xml.find(">", i)
+                tag_content = xml[i:tag_end + 1]
 
-        return text
+                # detect del span
+                if 'class="del"' in tag_content:
+                    skip_del = True
+
+                if tag_content.startswith("</span") and skip_del:
+                    skip_del = False
+
+                i = tag_end + 1
+                continue
+
+            # skip deleted text
+            if skip_del:
+                i += 1
+                continue
+
+            # visible text
+            text.append(char)
+            position_map.append(i)
+
+            i += 1
+
+        return "".join(text), position_map
 
     # ---------- TOKENIZATION ----------
     def _tokenize(self) -> List[Segment]:
@@ -62,91 +75,64 @@ class CitationAwareTokenizer:
 
             # ---------- SEMICOLON ----------
             if char == ';':
-                segments.append(Segment(
-                    text=current_segment.strip(),
-                    start_pos=current_start,
-                    end_pos=i + 1
-                ))
-
-                i += 1
-                while i < len(text) and text[i].isspace():
-                    i += 1
-
+                segments.append(self._build_segment(current_segment, current_start, i))
+                i = self._skip_spaces(text, i + 1)
                 current_start = i
                 current_segment = ""
                 continue
 
             # ---------- PERIOD ----------
             if char == '.' and self._is_sentence_boundary(text, i):
-                segments.append(Segment(
-                    text=current_segment.strip(),
-                    start_pos=current_start,
-                    end_pos=i + 1
-                ))
-
-                i += 1
-                while i < len(text) and text[i].isspace():
-                    i += 1
-
+                segments.append(self._build_segment(current_segment, current_start, i))
+                i = self._skip_spaces(text, i + 1)
                 current_start = i
                 current_segment = ""
                 continue
 
             i += 1
 
-        # ---------- FINAL SEGMENT ----------
+        # final segment
         if current_segment.strip():
-            segments.append(Segment(
-                text=current_segment.strip(),
-                start_pos=current_start,
-                end_pos=len(text)
-            ))
+            segments.append(self._build_segment(current_segment, current_start, len(text) - 1))
 
         return segments
 
-    # ---------- SENTENCE BOUNDARY ----------
-    def _is_sentence_boundary(self, text: str, period_pos: int) -> bool:
-        """
-        Determines if a period is a TRUE boundary between citations.
-        """
+    # ---------- HELPERS ----------
+    def _build_segment(self, segment_text, start, end):
+        return Segment(
+            text=segment_text.strip(),
+            start_pos=self.position_map[start],
+            end_pos=self.position_map[end] + 1
+        )
 
-        # End of text
-        if period_pos == len(text) - 1:
+    def _skip_spaces(self, text, i):
+        while i < len(text) and text[i].isspace():
+            i += 1
+        return i
+
+    # ---------- SENTENCE BOUNDARY ----------
+    def _is_sentence_boundary(self, text: str, pos: int) -> bool:
+        if pos == len(text) - 1:
             return True
 
-        before = text[max(0, period_pos - 10):period_pos]
-        after_pos = period_pos + 1
+        before = text[max(0, pos - 10):pos].strip()
+        after = pos + 1
 
-        # Skip whitespace
-        while after_pos < len(text) and text[after_pos].isspace():
-            after_pos += 1
+        while after < len(text) and text[after].isspace():
+            after += 1
 
-        before_clean = before.strip()
-
-        # ---------- RULE 1: DO NOT split after year ----------
-        if re.search(r'\(\d{4}\)$', before_clean):
+        if re.search(r'\(\d{4}\)$', before):
             return False
 
-        # ---------- RULE 2: DO NOT split inside citation flow ----------
-        if re.search(r'\b[A-Z][a-z]+$', before_clean) and \
-           after_pos < len(text) and text[after_pos].isupper():
+        if re.search(r'\b(pp|p|al|ed|vol|no)\.?$', before):
             return False
 
-        # ---------- RULE 3: Abbreviations ----------
-        if re.search(r'\b(pp|p|al|ed|vol|no)\.?$', before_clean):
-            return False
-
-        # ---------- RULE 4: Initials ----------
-        if period_pos >= 1 and text[period_pos - 1].isupper():
-            if period_pos == 1 or text[period_pos - 2].isspace():
+        if pos >= 1 and text[pos - 1].isupper():
+            if pos == 1 or text[pos - 2].isspace():
                 return False
 
-        # ---------- RULE 5: TRUE boundary ----------
-        if after_pos < len(text):
-            return (
-                text[after_pos].isupper() and
-                re.match(r'[A-Z][a-z]+', text[after_pos:])
-            )
+        if after < len(text):
+            return text[after].isupper()
 
         return False
 

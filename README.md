@@ -13,25 +13,31 @@ This service identifies **reference content** and **commentary** within paragrap
 
 ## API Endpoints
 
-- `POST /parse-paragraph` - Classify and tag paragraph content
+- `POST /parse-paragraph` - Classify and tag paragraph content (returns XML)
 - `GET /health` - Health check
 - `GET /` - API info
 
+## Usage Examples
 
-## Usage examples
-### Input
+### Request
+
+Send the paragraph text as JSON:
+
 ```json
 {
-"text": "<para er-custom-ele=\"true\" ele-id=\"254E136C\" store=\"635\" er_para_index_id=\"fe-1772171652046118-124\" contenteditable=\"true\" tabindex=\"-1\" translate=\"no\" data-alignment=\"left-justified\" data-indent-type=\"first-line\" data-left-indent=\"25pt\" data-right-indent=\"0pt\" data-special-indent=\"-19.5pt\" data-space-above=\"0pt\" data-space-below=\"0pt\" style=\"margin: calc(10px) 0px 0pt 25px; padding-left: 25px; text-indent: -19.5px;\" class=\"\" spellcheck=\"false\" data-gramm=\"false\">This topic has been widely discussed in recent scholarship. See John Brewer, <i ele-id=\"ds-C814AB4C\" store=\"636\" contenteditable=\"true\" tabindex=\"-1\" translate=\"no\" class=\"\" spellcheck=\"false\" data-gramm=\"false\">The Sinews of Power</i> (London: Routledge, <span class=\"refIcon\" tabindex=\"-1\" translate=\"no\" spellcheck=\"false\" data-gramm=\"false\" store=\"1774615713949816\"></span><link1 linkend=\"EUP_00_WREF_BIB_CIT000501\" role=\"bibr\" ele-id=\"ds-C8F97226\" store=\"638\" contenteditable=\"true\" tabindex=\"-1\" translate=\"no\" class=\"\" spellcheck=\"false\" data-gramm=\"false\">1989</link1>), p. 45, for further details.</para>"
-}
-```
-### Output
-```json
-{
-"classified_paragraph": "<para er-custom-ele=\"true\" ele-id=\"254E136C\" store=\"635\" er_para_index_id=\"fe-1772171652046118-124\" contenteditable=\"true\" tabindex=\"-1\" translate=\"no\" data-alignment=\"left-justified\" data-indent-type=\"first-line\" data-left-indent=\"25pt\" data-right-indent=\"0pt\" data-special-indent=\"-19.5pt\" data-space-above=\"0pt\" data-space-below=\"0pt\" style=\"margin: calc(10px) 0px 0pt 25px; padding-left: 25px; text-indent: -19.5px;\" class=\"\" spellcheck=\"false\" data-gramm=\"false\"><commentary>This topic has been widely discussed in recent scholarship.</commentary> <reference>See John Brewer, <i ele-id=\"ds-C814AB4C\" store=\"636\" contenteditable=\"true\" tabindex=\"-1\" translate=\"no\" class=\"\" spellcheck=\"false\" data-gramm=\"false\">The Sinews of Power</i> (London: Routledge, <span class=\"refIcon\" tabindex=\"-1\" translate=\"no\" spellcheck=\"false\" data-gramm=\"false\" store=\"1774615713949816\"></span><link1 linkend=\"EUP_00_WREF_BIB_CIT000501\" role=\"bibr\" ele-id=\"ds-C8F97226\" store=\"638\" contenteditable=\"true\" tabindex=\"-1\" translate=\"no\" class=\"\" spellcheck=\"false\" data-gramm=\"false\">1989</link1>), p. 45, </reference><commentary>for further details.</commentary></para>"
+  "text": "<para ...>This topic has been widely discussed in recent scholarship. See John Brewer, <i>The Sinews of Power</i> (London: Routledge, 1989), p. 45, for further details.</para>"
 }
 ```
 
+### Response
+
+The API returns **raw XML** (not JSON) with `Content-Type: application/xml; charset=utf-8`:
+
+```xml
+<para ...><commentary>This topic has been widely discussed in recent scholarship.</commentary> <reference>See John Brewer, <i>The Sinews of Power</i> (London: Routledge, 1989), p. 45, </reference><commentary>for further details.</commentary></para>
+```
+
+The response is valid XML that can be directly parsed and validated by XML tools.
 
 ### Requirements
 
@@ -39,17 +45,17 @@ This service identifies **reference content** and **commentary** within paragrap
 - Preserve all attributes exactly
 - Do not modify structure or ordering
 - Only add:
-  - &lt;reference&gt;
-  - &lt;commentary&gt;
+  - `<reference>`
+  - `<commentary>`
 
 Output must be identical to input except for wrapper tags.
 
 ### Approach
+
 - Tokenizer: splits content using citation-aware rules (; as primary delimiter)
 - Classifier: detects reference vs commentary (e.g., "See also")
 - Post-processing: separates mixed segments (e.g., "See also: Author")
 - Wrapper: inserts tags using position-based mapping without breaking XML
-
 
 ## Installation & Setup
 
@@ -90,3 +96,12 @@ pytest tests/test_parser.py -v
 # Run only integration tests (requires running server)
 pytest tests/test_endpoint.py -v
 ```
+
+## Architecture
+
+The service implements a **Pipeline** design pattern:
+
+1. **Tokenization** - Splits XML/HTML paragraphs into semantic segments
+2. **Classification** - Identifies each segment as reference or commentary
+3. **Post-processing** - Refines classifications for mixed segments
+4. **Wrapping** - Inserts XML tags while preserving structure

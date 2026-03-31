@@ -2,12 +2,10 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import re
 from typing import List, Tuple
-import logging
 
 from .tokenizer import CitationAwareTokenizer
 from .classifier import EnhancedClassifier
 from .wrapper import SmartTagWrapper
-from .config import HOST, PORT, DEBUG, logger
 
 
 app = FastAPI(
@@ -29,81 +27,72 @@ class ParagraphOutput(BaseModel):
     classified_paragraph: str
 
 
-# ---------- POST-PROCESSING ----------
+# ---------- SPLITTING LOGIC ----------
+
+REFERENCE_TRIGGERS = re.compile(
+    r'\b(see|cf\.|compare|e\.g\.)\b',
+    re.IGNORECASE
+)
+
+TRAILING_COMMENTARY = re.compile(
+    r'(.*?)(,\s*(for\s+.+))$',
+    re.IGNORECASE
+)
+
 
 def split_commentary_phrases(
     segments: List[Tuple[str, int, int, str]]
 ) -> List[Tuple[str, int, int, str]]:
+    """
+    Robust splitter that:
+    - Handles multiple "see / cf. / compare"
+    - Splits commentary → reference
+    - Splits reference → trailing commentary
+    """
 
     result = []
 
-    # 🔥 NEW: explicit "See also:"
-    see_also_pattern = re.compile(
-        r'^(See\s+also:)(\s+.+)$',
-        re.IGNORECASE
-    )
-
-    # existing patterns
-    see_pattern = re.compile(
-        r'^(.*?)(\bsee\b\s+.+)$',
-        re.IGNORECASE
-    )
-
-    tail_pattern = re.compile(
-        r'^(.*?,)(\s+for\s+.+)$',
-        re.IGNORECASE
-    )
-
     for text, start, end, classification in segments:
 
-        # ---------- CASE 0: "See also:" ----------
-        if classification == 'commentary':
-            match = see_also_pattern.match(text)
-            if match:
-                phrase = match.group(1).strip()
-                rest = match.group(2).strip()
+        remaining_text = text
+        offset_base = start
 
-                split_offset = text.find(rest)
-                if split_offset != -1:
-                    split_pos = start + split_offset
+        while True:
+            match = REFERENCE_TRIGGERS.search(remaining_text)
 
-                    result.append((phrase, start, split_pos, 'commentary'))
-                    result.append((rest, split_pos, end, 'reference'))
-                    continue
+            # ---------- NO MORE SPLITS ----------
+            if not match:
+                result.append((remaining_text, offset_base, end, classification))
+                break
 
-        # ---------- CASE 1: commentary → see → reference ----------
-        if classification == 'commentary':
-            match = see_pattern.match(text)
-            if match:
-                before = match.group(1).strip()
-                after = match.group(2).strip()
+            trigger_start = match.start()
 
-                split_offset = text.lower().find(after.lower())
-                if split_offset != -1:
-                    split_pos = start + split_offset
+            before = remaining_text[:trigger_start].strip()
+            after = remaining_text[trigger_start:].strip()
 
-                    if before:
-                        result.append((before, start, split_pos, 'commentary'))
+            split_pos = offset_base + trigger_start
 
-                    result.append((after, split_pos, end, 'reference'))
-                    continue
+            # ---------- COMMENTARY → REFERENCE ----------
+            if before:
+                result.append((before, offset_base, split_pos, 'commentary'))
 
-        # ---------- CASE 2: reference → trailing commentary ----------
-        if classification == 'reference':
-            match = tail_pattern.match(text)
-            if match:
-                before = match.group(1).strip()
-                after = match.group(2).strip()
+            # Now process the "after" part
+            # Check trailing commentary inside reference
+            tail_match = TRAILING_COMMENTARY.match(after)
 
-                split_offset = text.lower().find(after.lower())
-                if split_offset != -1:
-                    split_pos = start + split_offset
+            if tail_match:
+                ref_part = tail_match.group(1).strip()
+                comment_part = tail_match.group(2).strip()
 
-                    result.append((before, start, split_pos, 'reference'))
-                    result.append((after, split_pos, end, 'commentary'))
-                    continue
+                ref_end_pos = split_pos + len(ref_part)
 
-        result.append((text, start, end, classification))
+                result.append((ref_part, split_pos, ref_end_pos, 'reference'))
+                result.append((comment_part, ref_end_pos, end, 'commentary'))
+                break
+
+            else:
+                result.append((after, split_pos, end, 'reference'))
+                break
 
     return result
 
@@ -113,11 +102,16 @@ def split_commentary_phrases(
 def classify_paragraph(
     paragraph_text: str
 ) -> Tuple[str, List[Tuple[str, int, int, str]]]:
+    """
+    Full pipeline:
+    XML → Tokenize → Classify → Split → Wrap
+    """
 
     tokenizer = CitationAwareTokenizer(paragraph_text)
     segments = tokenizer.get_segments()
 
     classified_segments = []
+
     for segment in segments:
         classification = classifier.classify(segment.text)
 
@@ -142,17 +136,13 @@ def classify_paragraph(
 @app.post("/parse-paragraph", response_model=ParagraphOutput)
 async def parse_paragraph(input_data: ParagraphInput) -> ParagraphOutput:
     if not input_data.text or not input_data.text.strip():
-        logger.warning("Empty paragraph text received")
         raise HTTPException(status_code=400, detail="Paragraph text cannot be empty")
 
     try:
-        logger.debug(f"Processing paragraph with {len(input_data.text)} characters")
         wrapped_paragraph, _ = classify_paragraph(input_data.text)
-        logger.info("Paragraph processed successfully")
         return ParagraphOutput(classified_paragraph=wrapped_paragraph)
 
     except Exception as e:
-        logger.error(f"Error processing paragraph: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Error processing paragraph: {str(e)}"
@@ -180,5 +170,4 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-    logger.info(f"Starting Deanta API on {HOST}:{PORT}")
-    uvicorn.run(app, host=HOST, port=PORT, reload=DEBUG)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
