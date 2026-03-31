@@ -84,3 +84,5 @@ tmp/
 temp/
 *.swp
 *.swo
+
+*.pyc
