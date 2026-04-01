@@ -117,3 +117,10 @@ The service implements a **Pipeline** design pattern:
 - I initially explored DOM-based approaches with lxml, but due to the requirement of preserving exact byte-level structure and aligning with tokenizer offsets, I moved to a string-based insertion strategy. This avoids structural mutation issues and guarantees deterministic, non-destructive transformations.
 
 - Although test fixtures are stored in JSON, both input and output are treated as raw XML strings to preserve structure and ensure exact fidelity.
+
+
+## Tech Debt / Future Improvements
+
+- Introduce a lightweight NLP model to improve semantic classification in ambiguous cases where heuristic rules are insufficient.
+- **ML-based classification**: Introduce a lightweight NLP model to improve semantic segmentation in edge cases where heuristic rules may fail.
+- **Confidence scoring**: Assign a confidence score to each classified segment to enable thresholding, debugging, and potential human review of uncertain outputs.
