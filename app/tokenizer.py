@@ -100,7 +100,8 @@ class CitationAwareTokenizer:
 
         # ---------- FINAL ----------
         if buffer.strip():
-            segments.append(self._build_segment(buffer, current_start, len(text) - 1))
+            # Make sure to include trailing whitespace
+            segments.append(self._build_segment(buffer, current_start, i - 1))
 
         return segments
 
@@ -109,15 +110,23 @@ class CitationAwareTokenizer:
         if not segment_text.strip():
             return Segment("", 0, 0)
 
+        # Calculate how much leading/trailing whitespace we're stripping
+        stripped_text = segment_text.strip()
+        leading_ws = len(segment_text) - len(segment_text.lstrip())
+        
         # Clamp indices to valid range
         start = max(0, min(start, len(self.text) - 1))
         end = max(0, min(end, len(self.text) - 1))
 
+        # Adjust start position to skip the leading whitespace we're stripping
+        # This ensures the segment text and positions match
+        adjusted_start = start + leading_ws
+
         # Return positions in text-space (not XML-space)
         # These are indices into self.text (the semantic text)
         return Segment(
-            text=segment_text.strip(),
-            start_pos=start,
+            text=stripped_text,
+            start_pos=adjusted_start,
             end_pos=end + 1
         )
 
