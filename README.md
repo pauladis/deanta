@@ -110,3 +110,5 @@ The service implements a **Pipeline** design pattern:
 ## Design decisions
 
 - I initially explored DOM-based approaches with lxml, but due to the requirement of preserving exact byte-level structure and aligning with tokenizer offsets, I moved to a string-based insertion strategy. This avoids structural mutation issues and guarantees deterministic, non-destructive transformations.
+
+- Although test fixtures are stored in JSON, both input and output are treated as raw XML strings to preserve structure and ensure exact fidelity.
