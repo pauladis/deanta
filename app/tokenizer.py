@@ -145,6 +145,10 @@ class CitationAwareTokenizer:
         if re.search(r'\(\d{4}\)\s*$', before_clean):
             return False
 
+        # cf. / e.g. / viz. / etc.
+        if re.search(r'\b(cf|e\.g|viz|etc)\.?\s*$', before_clean, re.IGNORECASE):
+            return False
+
         # p. / pp.
         if re.search(r'\b(pp|p|vol|no|ed)\.\s*$', before_clean, re.IGNORECASE):
             return False

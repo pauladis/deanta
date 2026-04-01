@@ -13,21 +13,19 @@ class EnhancedClassifier:
         r'^Furthermore',
         r'^Moreover',
         r'^Additionally',
-
+        # Note: Removed specific "For discussion/analysis" - will handle separately
         r'^For\s+(?:an?\s+)?(?:in-depth|detailed|full|further)\s+(?:discussion|analysis)',
         r'^For\s+(?:a\s+)?(?:revised|different|alternative)\s+(?:interpretation|view)',
-        r'^For\s+(?:discussion|analysis)',
         r'^As\s+(?:discussed|noted|argued)',
         r'^Compare',
-        r'^Cf\.',
-
+        # Note: Removed Cf. - handled in hard rule
         r'^Building\s+on',
         r'^It\s+is\s+(?:also\s+)?argued',
         r'^It\s+should\s+be\s+noted',
         r'^Recent\s+(?:studies|scholarship)',
         r'^archival\s+evidence',
         r'^Taken\s+together',
-        r'^This\s+(?:topic|has)',
+        # Note: Removed "This topic" pattern - too broad
         r'^These\s+works',
         r'^The\s+(?:role|evidence)',
     ]
@@ -68,6 +66,23 @@ class EnhancedClassifier:
 
         # "See also:" must be commentary (so it can be split later)
         if re.match(r'^\s*See\s+also:', text, re.IGNORECASE):
+            return "commentary"
+
+        # "cf." at the start should be reference
+        if re.match(r'^\s*cf\.', text, re.IGNORECASE):
+            return "reference"
+
+        # "For discussion, see" - should be commentary (splitter will handle the split)
+        # Must check BEFORE the general "For X, see Y" rule
+        if re.match(r'^For\s+discussion,\s+see\s+', text, re.IGNORECASE):
+            return "commentary"
+
+        # "For X, see Y" should be reference (keep together) - general pattern
+        if re.match(r'^For\s+', text, re.IGNORECASE) and re.search(r'\b(see|cf\.)\b', text, re.IGNORECASE):
+            return "reference"
+
+        # "This topic is debated" - should be commentary (splitter will handle the split)
+        if re.match(r'^This\s+topic\s+is\s+', text, re.IGNORECASE):
             return "commentary"
 
         # DO NOT classify "see X" as reference here

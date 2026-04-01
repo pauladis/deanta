@@ -53,26 +53,45 @@ def split_commentary_phrases(
         # "See also:" can be classified as commentary but followed by author reference
         # We need to split it further: "See also:" stays commentary, author part becomes reference
         if label == "commentary" and re.match(r'^See\s+also:', text, re.IGNORECASE):
-            see_also_match = re.match(r'^(See\s+also:?)\s+(.+)$', text, re.IGNORECASE)
+            see_also_match = re.match(r'^(See\s+also:?)(\s*)(.+)$', text, re.IGNORECASE)
             
             if see_also_match:
-                see_also_phrase = see_also_match.group(1)
-                following_content = see_also_match.group(2)
+                see_also_phrase = see_also_match.group(1)  # "See also:" with proper spacing
+                space_after = see_also_match.group(2)  # Spaces after colon
+                following_content = see_also_match.group(3)  # Content after spaces
                 
-                # Find where 'see also' ends
-                split_idx = text.lower().find(following_content.lower())
+                # Split after "See also:" but INCLUDE trailing space in commentary
+                split_idx = len(see_also_phrase) + len(space_after)
                 split_pos = start + split_idx
                 
-                # "See also:" stays commentary
-                result.append((see_also_phrase, start, split_pos, "commentary"))
+                # "See also:" + trailing space stays commentary
+                comment_part = text[:split_idx]
+                result.append((comment_part, start, split_pos, "commentary"))
                 # What follows is a reference
                 result.append((following_content, split_pos, end, "reference"))
                 continue
 
+        # ---------- CASE 0.5: split if there's a trigger in the middle of commentary ----------
+        # Pattern: "commentary, see reference" → split: "commentary," goes to commentary, "see reference" goes to reference
+        if label == "commentary":
+            # Look for comma followed by trigger word (see, compare, e.g.)
+            trigger_match = re.search(r'(,\s*)(see|compare|e\.g\.)\b', text, re.IGNORECASE)
+            if trigger_match:
+                # Split AFTER the comma: include comma + space in commentary
+                trigger_pos = trigger_match.start(2)  # Position of 'see', 'compare', etc.
+                
+                comment_part = text[:trigger_pos]  # "This topic is debated, " (keep trailing space)
+                ref_part = text[trigger_pos:]  # "see John Brewer..."
+                
+                result.append((comment_part, start, start + len(comment_part), "commentary"))
+                result.append((ref_part, start + len(comment_part), end, "reference"))
+                continue
+
         # ---------- CASE 1: split if it STARTS with trigger ----------
         # Use lstrip to find the trigger at the beginning (ignoring leading whitespace)
+        # NOTE: Only split on 'see', 'compare', 'e.g.' - NOT 'cf.' (which should stay with ref)
         text_lstripped = text.lstrip()
-        match = re.match(r'^(see|cf\.|compare|e\.g\.)\b', text_lstripped, re.IGNORECASE)
+        match = re.match(r'^(see|compare|e\.g\.)\b', text_lstripped, re.IGNORECASE)
 
         if label == "commentary" and match:
             # Find how much whitespace was stripped
@@ -107,19 +126,19 @@ def split_commentary_phrases(
 
         # ---------- CASE 2a: 'See also:' phrase at the beginning of reference ----------
         if label == "reference":
-            see_also_match = re.match(r'^(See\s+also:?)\s+(.+)$', text, re.IGNORECASE)
+            see_also_match = re.match(r'^(See\s+also:?)\s*(.+)$', text, re.IGNORECASE)
             
             if see_also_match:
-                see_also_phrase = see_also_match.group(1)
+                see_also_phrase = see_also_match.group(1).rstrip()  # Remove trailing spaces
                 following_content = see_also_match.group(2)
                 
-                # Find where 'see also' ends
-                split_idx = text.lower().find(following_content.lower())
+                # Calculate split position after "See also:" (no trailing space)
+                split_idx = len(see_also_phrase)
                 split_pos = start + split_idx
                 
                 # "See also:" is commentary
                 result.append((see_also_phrase, start, split_pos, "commentary"))
-                # What follows is a reference
+                # What follows is a reference (including leading space if any)
                 result.append((following_content, split_pos, end, "reference"))
                 continue
         
