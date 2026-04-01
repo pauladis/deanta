@@ -88,14 +88,19 @@ The API will be available at `http://localhost:8000`
 
 ```bash
 # Run all tests (requires running server for endpoint tests)
-pytest -v
-
-# Run only unit tests (no server required)
-pytest tests/test_parser.py -v
-
-# Run only integration tests (requires running server)
-pytest tests/test_endpoint.py -v
+python3 -m tests.test_runner
 ```
+### Test Data
+
+- `fixture.json` - Real-world paragraph examples
+- `response-sample.json` - Expected outputs (ground truth)
+
+Tests validate:
+- All 10 structural tests pass (100%)
+- Golden test passes (100%)
+- Complex XML handling with nested tags
+- Track changes support
+
 
 ## Architecture
 
