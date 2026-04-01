@@ -20,10 +20,10 @@ from app.main import classify_paragraph
 # Load fixtures
 # -------------------------
 
-with open("fixture.json") as f:
+with open("tests/fixture.json") as f:
     TEST_CASES = json.load(f)
 
-with open("response-sample.json") as f:
+with open("tests/response-sample.json") as f:
     TRUTH_CASES = json.load(f)
 
 
